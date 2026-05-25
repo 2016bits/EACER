@@ -1,0 +1,167 @@
+# ===== 项目特定忽略 =====
+documents/
+test/
+
+# ===== 大文件 / 数据 / 模型权重 =====
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.bz2
+*.7z
+*.rar
+*.iso
+*.dmg
+
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.h5
+*.hdf5
+*.pb
+*.tflite
+*.gguf
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.parquet
+*.feather
+*.arrow
+
+*.csv
+*.tsv
+*.jsonl
+*.xlsx
+*.xls
+
+*.db
+*.sqlite
+*.sqlite3
+
+# 媒体文件
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.mp3
+*.wav
+*.flac
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+develop-eggs/
+.installed.cfg
+pip-wheel-metadata/
+MANIFEST
+
+# 虚拟环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# 测试 / 覆盖率
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# 类型检查 / 静态分析
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ===== Node / 前端（如有用到） =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.spyderproject
+.spyproject
+.ropeproject
+
+# ===== 操作系统 =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===== 日志 / 临时文件 =====
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# ===== 密钥 / 配置 =====
+*.pem
+*.key
+*.crt
+*.cert
+.envrc
+.env.local
+.env.*.local
+secrets.yaml
+secrets.yml
+credentials.json
+
+# ===== 实验输出 =====
+runs/
+wandb/
+mlruns/
+lightning_logs/
+checkpoints/
+outputs/
+output/
+results/
+cache/
+.cache/
+
+# ===== 通用大文件保险 =====
+# 超过 50MB 的文件建议手动确认，必要时使用 Git LFS
