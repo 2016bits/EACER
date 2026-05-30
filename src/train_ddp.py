@@ -269,16 +269,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override cfg['seed']; output_dir gets suffixed _seed{N}.")
+    parser.add_argument("--output_suffix", type=str, default=None,
+                        help="Extra suffix appended to cfg['output_dir'].")
     args = parser.parse_args()
 
     rank, world_size, local_rank = _setup_ddp()
     is_main = (rank == 0)
 
     cfg = load_config(args.config)
-    # rank-shifted seed gives every worker a different sampling RNG while
-    # keeping model init deterministic across ranks (the model is built
-    # AFTER set_seed and SyncedRandom flag, so init is per-rank, which DDP
-    # then broadcasts from rank 0).
+    if args.seed is not None:
+        cfg["seed"] = args.seed
+        cfg["output_dir"] = cfg["output_dir"].rstrip("/") + f"_seed{args.seed}"
+    if args.output_suffix:
+        cfg["output_dir"] = cfg["output_dir"].rstrip("/") + args.output_suffix
     set_seed(cfg.get("seed", 42))
 
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
