@@ -462,6 +462,26 @@ Possible multimodal fact-checking or evidence retrieval datasets:
 
 For datasets without explicit evidence retrieval annotations, pseudo-positive evidence can be constructed from gold verification evidence or aligned article-image pairs.
 
+## 14.1 MR2 quick start
+
+The retrieval pipeline supports MR2 out of the box. After downloading and
+unzipping the dataset (`MR2.zip`) so that
+`<MR2_ROOT>/queries_dataset_merge/dataset_items_{train,val,test}.json` exists
+(e.g. under `/mnt/data/yangjun/data/mr2`):
+
+```bash
+# 1. Convert MR2 -> JSONL (one-shot)
+bash scripts/preprocess_mr2.sh
+
+# 2. Train (full ECER on MR2)
+bash scripts/train_mr2.sh configs/mr2_ecer.yaml
+
+# 3. Evaluate on test
+bash scripts/evaluate_mr2.sh configs/mr2_ecer.yaml outputs/mr2_ecer_A/best.pt test
+```
+
+See `data/README.md` for the on-disk layout and the MR2 → JSONL schema.
+
 ## 15. Implementation Plan
 
 ### Step 1: Build a Baseline Retriever

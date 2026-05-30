@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+Pillow>=9.0.0
+numpy>=1.23.0
+PyYAML>=6.0
+tqdm>=4.65.0
+scikit-learn>=1.2.0
+faiss-cpu>=1.7.4
+tensorboard>=2.13.0

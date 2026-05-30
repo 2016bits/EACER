@@ -1,0 +1,54 @@
+seed: 42
+device: cuda
+output_dir: outputs/ecer_base
+
+data:
+  train_path: data/processed/mocheg_train.jsonl
+  val_path: data/processed/mocheg_val.jsonl
+  test_path: data/processed/mocheg_test.jsonl
+  image_root: data/raw/mocheg/images
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 0   # 0 disables hard negatives; uses in-batch only
+
+model:
+  text_encoder: bert-base-uncased
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 768
+  projector_out_dim: 768
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  fusion_hidden_dim: 768
+
+weighting:
+  use_claim_relevance: true        # S_j
+  use_complementarity: true        # D_j
+  use_entropy_reliability: true    # R_j
+  entropy_scheme: A                # "A" (high-entropy suppression) or "B" (mid-entropy preference)
+  entropy_K: 1000                  # number of concept prompts
+  entropy_concepts_path: null      # null -> use built-in ImageNet templates
+  entropy_mu: 4.0                  # only used by scheme B
+  entropy_sigma: 1.5               # only used by scheme B
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 0.5
+  use_complementary_loss: true
+
+optim:
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 10
+  batch_size: 32
+  grad_accum_steps: 1
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true
