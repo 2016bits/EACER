@@ -41,9 +41,15 @@ def evaluate(model, cfg, tokenizer, image_processor, device, split: str = "val")
     data_cfg = cfg["data"]
     path = data_cfg[f"{split}_path"]
     image_root = data_cfg["image_root"]
+    use_claim_image = cfg["model"].get("use_claim_image", False)
 
     corpus = EvidenceCorpus(path, image_root, image_size=data_cfg["image_size"])
-    queries = ClaimQueries(path)
+    queries = ClaimQueries(
+        path,
+        with_claim_image=use_claim_image,
+        image_root=image_root,
+        image_size=data_cfg["image_size"],
+    )
 
     evi_collator = EncodeCollator(
         tokenizer, image_processor,
@@ -51,9 +57,9 @@ def evaluate(model, cfg, tokenizer, image_processor, device, split: str = "val")
         text_key="text", with_image=True,
     )
     claim_collator = EncodeCollator(
-        tokenizer, image_processor=None,
+        tokenizer, image_processor=image_processor if use_claim_image else None,
         max_len=data_cfg["max_claim_len"],
-        text_key="claim", with_image=False,
+        text_key="claim", with_image=use_claim_image,
     )
 
     bs = max(cfg["optim"]["batch_size"], 16)
@@ -78,7 +84,10 @@ def evaluate(model, cfg, tokenizer, image_processor, device, split: str = "val")
     claim_ids, claim_vecs, gold_lists = [], [], []
     for batch in tqdm(claim_loader, desc=f"encode claims [{split}]"):
         batch_g = _move(batch, device)
-        vec = model.encode_claim_for_index(batch_g["input_ids"], batch_g["attention_mask"])
+        vec = model.encode_claim_for_index(
+            batch_g["input_ids"], batch_g["attention_mask"],
+            claim_pixel_values=batch_g.get("pixel_values"),
+        )
         claim_ids.extend(batch["ids"])
         claim_vecs.append(vec.cpu())
         gold_lists.extend(batch["gold_evidence_ids"])
@@ -167,12 +176,14 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["text_encoder"])
     image_processor = CLIPImageProcessor.from_pretrained(cfg["model"]["visual_encoder"])
 
+    use_claim_image = cfg["model"].get("use_claim_image", False)
     train_ds = MochegRetrievalDataset(
         cfg["data"]["train_path"],
         cfg["data"]["image_root"],
         image_size=cfg["data"]["image_size"],
         hard_negatives_per_sample=cfg["data"]["hard_negatives_per_sample"],
         is_train=True,
+        with_claim_image=use_claim_image,
     )
     collator = RetrievalCollator(
         tokenizer,
@@ -180,6 +191,7 @@ def main():
         max_claim_len=cfg["data"]["max_claim_len"],
         max_evidence_len=cfg["data"]["max_evidence_len"],
         build_complementary_query=cfg["loss"].get("use_complementary_loss", True),
+        with_claim_image=use_claim_image,
     )
     train_loader = DataLoader(
         train_ds,

@@ -72,11 +72,38 @@ class ECERRetriever(nn.Module):
             nn.LayerNorm(self.fusion.start_emb.shape[-1]),
         )
 
+        # Optional claim-side image processing (Step 2). When enabled, we run
+        # CLIP on the claim image, mean-pool the projected patches, then fuse
+        # with the text-pooled representation via a small MLP. The MLP's
+        # second-linear weight is zero-initialised so that at init the model
+        # behaves exactly like the text-only version — this keeps the new
+        # config close to its baseline and avoids destabilising fine-tunes
+        # that already converged.
+        self.use_claim_image = m_cfg.get("use_claim_image", False)
+        if self.use_claim_image:
+            D = self.text_encoder.hidden_dim
+            self.claim_image_fuse = nn.Sequential(
+                nn.Linear(2 * D, D),
+                nn.GELU(),
+                nn.Linear(D, D),
+            )
+            # Zero-init the residual contribution so initial behaviour ≈ text-only
+            nn.init.zeros_(self.claim_image_fuse[-1].weight)
+            nn.init.zeros_(self.claim_image_fuse[-1].bias)
+
     # ------------------------------------------------------------------
     # Encoding helpers
     # ------------------------------------------------------------------
-    def encode_claim(self, input_ids, attention_mask):
+    def encode_claim(self, input_ids, attention_mask, claim_pixel_values=None):
         out = self.text_encoder(input_ids=input_ids, attention_mask=attention_mask)
+        if self.use_claim_image and claim_pixel_values is not None:
+            _, projected = self.encode_visual(claim_pixel_values)         # (B, P, D)
+            img_pooled = projected.mean(dim=1)                            # (B, D)
+            fused = self.claim_image_fuse(
+                torch.cat([out.pooled, img_pooled], dim=-1)
+            )
+            # Residual: keep text signal, add gated image contribution.
+            out.pooled = out.pooled + fused
         return out
 
     def encode_evidence_text(self, input_ids, attention_mask):
@@ -92,7 +119,11 @@ class ECERRetriever(nn.Module):
     # Forward (training): claim aligned 1-1 with positive evidence; negatives flat
     # ------------------------------------------------------------------
     def forward(self, batch: Dict[str, Any]) -> RetrieverOutput:
-        claim_out = self.encode_claim(batch["claim_input_ids"], batch["claim_attention_mask"])
+        claim_out = self.encode_claim(
+            batch["claim_input_ids"],
+            batch["claim_attention_mask"],
+            claim_pixel_values=batch.get("claim_pixel_values"),
+        )
 
         evi_text_out = self.encode_evidence_text(
             batch["evidence_input_ids"], batch["evidence_attention_mask"]
@@ -144,6 +175,9 @@ class ECERRetriever(nn.Module):
 
         claim_comp_repr = None
         if "claim_comp_input_ids" in batch:
+            # q_comp aligns the masked-text claim with the WEIGHTED VISUAL of
+            # the evidence — it carries no visual info itself, so we keep it
+            # text-only even when claim image is enabled.
             claim_comp_out = self.encode_claim(
                 batch["claim_comp_input_ids"], batch["claim_comp_attention_mask"]
             )
@@ -167,8 +201,8 @@ class ECERRetriever(nn.Module):
     # Inference encoders for index building
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def encode_claim_for_index(self, input_ids, attention_mask) -> torch.Tensor:
-        out = self.encode_claim(input_ids, attention_mask)
+    def encode_claim_for_index(self, input_ids, attention_mask, claim_pixel_values=None) -> torch.Tensor:
+        out = self.encode_claim(input_ids, attention_mask, claim_pixel_values=claim_pixel_values)
         return F.normalize(self.claim_head(out.pooled), dim=-1)
 
     @torch.no_grad()

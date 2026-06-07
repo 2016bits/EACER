@@ -1,0 +1,62 @@
+# Full ECER with entropy scheme B (mid-entropy preference) instead of A.
+#   Scheme A: R = 1 - H / log(K)              -- low-entropy regions preferred
+#   Scheme B: R = exp(-(H - mu)^2 / 2 sigma^2) -- mid-entropy regions preferred
+#
+# Mid-entropy regions are hypothesised to carry the most discriminative
+# information (low-entropy = trivial like uniform color; high-entropy = noise).
+# mu and sigma are calibrated to the entropy histogram observed on the
+# ImageNet-1k concepts: mean H ≈ log(1000)/2 ≈ 3.45 with std ≈ 1.5.
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ecer_schemeB
+
+data:
+  train_path: data/processed/mr2/mr2_train.jsonl
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 1
+
+model:
+  text_encoder: xlm-roberta-base
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 768
+  projector_out_dim: 768
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  fusion_hidden_dim: 768
+
+weighting:
+  use_claim_relevance: true
+  use_complementarity: true
+  use_entropy_reliability: true
+  entropy_scheme: B               # <-- mid-entropy preference
+  entropy_K: 1000
+  entropy_concepts_path: data/imagenet1k_concepts.txt   # needs the same K=1000 file
+  entropy_mu: 3.5                 # target H, near log(K)/2
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 0.5
+  use_complementary_loss: true
+
+optim:
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 5
+  batch_size: 32
+  grad_accum_steps: 1
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true

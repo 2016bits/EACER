@@ -1,0 +1,66 @@
+# Step 3: Same as mr2_ecer_best.yaml BUT trained on the BM25-mined
+# hard-negative JSONL (each claim now carries 8 BM25-similar wrong evidences
+# in `negative_evidence`). At collation time we keep 4 of them per sample
+# (`hard_negatives_per_sample: 4`), so the effective contrastive batch is
+# 32 * (1 + 4) = 160 evidences instead of 32 — and crucially, those 4
+# negatives are the lexically-hard ones BM25 was confusing ECER with.
+#
+# Hypothesis: this lifts the pure-ECER rerank (alpha=0.0 in Step 1) from
+# losing to BM25 (R@10 14.85) to at least tying it. Convex fusion (alpha=0.5)
+# should also climb past the current best (R@10 24.90).
+
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ecer_hardneg
+
+data:
+  train_path: data/processed/mr2/mr2_train_hardneg.jsonl   # BM25-mined
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 4                              # 4x the default
+
+model:
+  text_encoder: xlm-roberta-base
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 768
+  projector_out_dim: 768
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  fusion_hidden_dim: 768
+
+weighting:
+  use_claim_relevance: true
+  use_complementarity: true
+  use_entropy_reliability: true
+  entropy_scheme: A
+  entropy_K: 1000
+  entropy_concepts_path: null
+  entropy_mu: 4.0
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 2.0
+  use_complementary_loss: true
+
+optim:
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 5
+  batch_size: 16          # halved from 32 because each sample now carries 4
+                          # hard negatives -> per-step memory ~ 16*5 = 80 evi
+  grad_accum_steps: 2     # effective batch = 32 (matches baseline for fair compare)
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true

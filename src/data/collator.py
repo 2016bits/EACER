@@ -10,6 +10,7 @@ class RetrievalCollator:
     Output batch keys:
       - claim_input_ids, claim_attention_mask
       - claim_comp_input_ids, claim_comp_attention_mask  (q_comp: text overlap masked)
+      - claim_pixel_values                               (B, 3, H, W) if with_claim_image
       - evidence_input_ids, evidence_attention_mask
       - pixel_values                                     (B+B*neg, 3, H, W)
       - num_negatives_per_sample
@@ -22,12 +23,14 @@ class RetrievalCollator:
         max_claim_len: int = 64,
         max_evidence_len: int = 128,
         build_complementary_query: bool = True,
+        with_claim_image: bool = False,
     ):
         self.tokenizer = tokenizer
         self.image_processor = image_processor
         self.max_claim_len = max_claim_len
         self.max_evidence_len = max_evidence_len
         self.build_complementary_query = build_complementary_query
+        self.with_claim_image = with_claim_image
 
     def _mask_overlap(self, claim: str, evidence_text: str) -> str:
         """Build q_comp by masking claim tokens that overlap with evidence text.
@@ -50,6 +53,7 @@ class RetrievalCollator:
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         claims: List[str] = []
         claims_comp: List[str] = []
+        claim_images = []
         evidence_texts: List[str] = []
         evidence_images = []
         num_negatives_list: List[int] = []
@@ -63,6 +67,8 @@ class RetrievalCollator:
             positive_evidence_ids.append(pos["evidence_id"])
             evidence_texts.append(pos["text"])
             evidence_images.append(pos["image"])
+            if self.with_claim_image:
+                claim_images.append(sample["claim_image"])
 
             if self.build_complementary_query:
                 claims_comp.append(self._mask_overlap(sample["claim"], pos["text"]))
@@ -112,6 +118,10 @@ class RetrievalCollator:
 
         pixel = self.image_processor(images=evidence_images, return_tensors="pt")["pixel_values"]
         out["pixel_values"] = pixel
+
+        if self.with_claim_image:
+            cpix = self.image_processor(images=claim_images, return_tensors="pt")["pixel_values"]
+            out["claim_pixel_values"] = cpix
         return out
 
 
@@ -149,7 +159,9 @@ class EncodeCollator:
         }
         if self.with_image:
             assert self.image_processor is not None
-            images = [b["image"] for b in batch]
+            # Evidence corpus uses "image"; claim corpus (image-aware) uses "claim_image".
+            image_field = "claim_image" if "claim_image" in batch[0] else "image"
+            images = [b[image_field] for b in batch]
             out["pixel_values"] = self.image_processor(images=images, return_tensors="pt")["pixel_values"]
         if "gold_evidence_ids" in batch[0]:
             out["gold_evidence_ids"] = [b["gold_evidence_ids"] for b in batch]
