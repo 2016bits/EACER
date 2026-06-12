@@ -1,0 +1,64 @@
+# Same as configs/mr2_ecer_bge_m3.yaml but with lr bumped from 1e-5 to 2e-5
+# (matching the Tier A run). Hypothesis: the first BGE-M3 run trained at
+# lr=1e-5 because we worried about washing out BGE-M3's retrieval-tuned
+# weights, but the conservative LR may have undertrained the model — Tier A
+# dense val was 18.45 R@10 while BGE-M3 only reached 17.76 despite having
+# 2x params and stronger pre-training. Bumping LR should reveal whether the
+# encoder has unused capacity.
+
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ecer_bge_m3_lr2e5
+
+data:
+  train_path: data/processed/mr2/mr2_train_hardneg.jsonl
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 4
+
+model:
+  text_encoder: BAAI/bge-m3
+  text_pooling: cls
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 1024
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  use_claim_image: true
+
+weighting:
+  use_claim_relevance: true
+  use_complementarity: true
+  use_entropy_reliability: true
+  entropy_scheme: A
+  entropy_K: 1000
+  entropy_concepts_path: null
+  entropy_mu: 4.0
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 2.0
+  use_complementary_loss: true
+
+optim:
+  lr: 2.0e-5                          # << bumped from 1e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 10
+  batch_size: 8
+  grad_accum_steps: 4
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true
+  early_stopping_metric: Recall@10
+  early_stopping_patience: 3

@@ -17,9 +17,33 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from collections import Counter
 from typing import List
+
+_CJK_RE = re.compile(r"[一-鿿]")
+
+
+def _chinese_ratio(text: str) -> float:
+    if not text:
+        return 0.0
+    n_cjk = sum(1 for c in text if _CJK_RE.match(c))
+    n_letters = sum(1 for c in text if c.isalpha() or _CJK_RE.match(c))
+    return n_cjk / max(n_letters, 1)
+
+
+def _filter_query_indices(queries_items, mode: str):
+    if mode == "all":
+        return list(range(len(queries_items)))
+    keep = []
+    for i, q in enumerate(queries_items):
+        ratio = _chinese_ratio(q["claim"])
+        if mode == "zh" and ratio >= 0.5:
+            keep.append(i)
+        elif mode == "en" and ratio < 0.1:
+            keep.append(i)
+    return keep
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -113,11 +137,14 @@ def main():
     p.add_argument("--k1", type=float, default=1.5)
     p.add_argument("--b", type=float, default=0.75)
     p.add_argument("--top_k", type=int, default=100)
+    p.add_argument("--lang_filter", default="all", choices=["all", "zh", "en"],
+                   help="Subset queries by detected language for analysis.")
     p.add_argument("--out_json", default=None)
     args = p.parse_args()
 
     jsonl = args.jsonl or f"data/processed/mr2/mr2_{args.split}.jsonl"
-    out_json = args.out_json or f"outputs/bm25_{args.split}_results.json"
+    suffix = "" if args.lang_filter == "all" else f"_{args.lang_filter}"
+    out_json = args.out_json or f"outputs/bm25_{args.split}{suffix}_results.json"
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     print(f"[bm25] tokenizer={args.tokenizer}, split={args.split}, jsonl={jsonl}")
@@ -134,11 +161,19 @@ def main():
     postings = build_postings(tf_per_doc)
     print(f"[bm25] avg_dl={avg_dl:.1f}, vocab={len(idf)}, total tokens={int(doc_lengths.sum())}")
 
-    queries_tokens: List[List[int]] = []
-    gold_ids_list: List[List[str]] = []
+    all_q_tokens: List[List[int]] = []
+    all_gold_ids: List[List[str]] = []
     for q in tqdm(queries.items, desc="tokenize queries"):
-        queries_tokens.append(tokenize(tokenizer, q["claim"]))
-        gold_ids_list.append(q["gold_evidence_ids"])
+        all_q_tokens.append(tokenize(tokenizer, q["claim"]))
+        all_gold_ids.append(q["gold_evidence_ids"])
+
+    keep_idx = _filter_query_indices(queries.items, args.lang_filter)
+    print(f"[bm25] kept {len(keep_idx)} / {len(queries)} queries after lang_filter={args.lang_filter}")
+    if not keep_idx:
+        print("[bm25] nothing to score for this subset; exiting.")
+        return
+    queries_tokens = [all_q_tokens[i] for i in keep_idx]
+    gold_ids_list = [all_gold_ids[i] for i in keep_idx]
 
     # Score everything (queries × docs). For ~10k docs × ~1k queries this fits.
     sims = bm25_score_batch(queries_tokens, idf, doc_lengths, avg_dl, tf_per_doc, k1, b, postings)
@@ -152,7 +187,7 @@ def main():
     ks = [1, 5, 10, 20, 100]
     metrics = retrieval_metrics(ranked, gold_ids_list, ks=ks)
 
-    print(f"\n[bm25] {args.split.upper()} set retrieval metrics:")
+    print(f"\n[bm25] {args.split.upper()}/{args.lang_filter} retrieval metrics:")
     for k in ["Recall@1", "Recall@5", "Recall@10", "Recall@20", "Recall@100",
               "MRR", "mAP", "NDCG@10"]:
         print(f"  {k:>10s}: {metrics.get(k, 0.0):.4f}")
@@ -163,6 +198,9 @@ def main():
             "tokenizer": args.tokenizer,
             "k1": args.k1, "b": args.b,
             "split": args.split,
+            "lang_filter": args.lang_filter,
+            "n_queries_kept": len(keep_idx),
+            "n_queries_total": len(queries),
             "metrics": metrics,
         }, f, indent=2, ensure_ascii=False)
     print(f"\n[bm25] wrote {out_json}")

@@ -11,10 +11,10 @@
 ```
                                          | R@1 | R@5 | R@10 | R@100 | MRR | mAP
 ─────────────────────────────────────────┼─────┼─────┼──────┼───────┼─────┼─────
-Sparse                                   │
-  BM25 (XLM-R tokenizer)                 │  ✅ 已有
-  TF-IDF                                 │  ⬜ 待补
-  Jieba+BM25 (中文子集)                  │  ⬜ 待补
+Sparse                                   │  → outputs/sparse_baselines_test.md
+  BM25 (XLM-R tokenizer)                 │  ✅ all 23.84 / zh 14.12 / en 32.73  (R@10)
+  TF-IDF (XLM-R tokenizer)               │  ✅ all 24.31 / zh 14.25 / en 33.42  (R@10)
+  Jieba+BM25                             │  ✅ all 24.46 / zh 13.05 / en 34.91  (R@10)
                                          │
 Text-only dense                          │
   BGE-M3 (zero-shot)                     │  ⬜ 待补 ★

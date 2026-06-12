@@ -87,7 +87,8 @@ def encode_with_ecer(ckpt_path: str, jsonl: str, device: torch.device):
     for b in tqdm(evi_loader, desc="[ecer] encode evidence"):
         bb = _move(b, device)
         v = model.encode_evidence_for_index(
-            input_ids=bb["input_ids"], attention_mask=bb["attention_mask"], pixel_values=bb["pixel_values"])
+            input_ids=bb["input_ids"], attention_mask=bb["attention_mask"],
+            pixel_values=bb["pixel_values"], has_image=bb.get("has_image"))
         evi_ids.extend(b["ids"]); evi_vecs.append(v.cpu())
     claim_ids, claim_vecs, gold_lists = [], [], []
     for b in tqdm(claim_loader, desc="[ecer] encode claims"):

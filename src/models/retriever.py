@@ -30,7 +30,9 @@ class ECERRetriever(nn.Module):
         w_cfg = cfg["weighting"]
 
         self.text_encoder = TextEncoder(
-            m_cfg["text_encoder"], freeze=m_cfg.get("freeze_text", False)
+            m_cfg["text_encoder"],
+            freeze=m_cfg.get("freeze_text", False),
+            pooling=m_cfg.get("text_pooling", "mean"),
         )
         self.visual_encoder = VisualEncoder(
             m_cfg["visual_encoder"], freeze=m_cfg.get("freeze_visual", True)
@@ -164,8 +166,26 @@ class ECERRetriever(nn.Module):
             reliability=R,
         )
 
+        # 45% of MR2 evidences are text-only HTML pages that the data layer
+        # serves as black 224x224 placeholders. Their CLIP patches are
+        # deterministic but meaningless — we zero them only at the *fusion*
+        # input so the transformer sees a [start; 0; end; T] sequence for
+        # those documents and effectively goes text-only. We KEEP the raw
+        # weighted_visual on the output side: L_comp uses it as the alignment
+        # target, and forcing it to zero there pulls q_comp toward the
+        # origin, which collapses training. Letting L_comp see the noisy-
+        # but-non-zero CLIP-on-black feature is the lesser evil — its
+        # gradient on text-only positives is uninformative but at least it
+        # doesn't poison the rest of the batch.
+        weighted_visual = weighting_out.weighted_visual
+        if "has_image_evidence" in batch:
+            mask = batch["has_image_evidence"].to(weighted_visual.dtype).unsqueeze(-1)
+            visual_for_fusion = weighted_visual * mask
+        else:
+            visual_for_fusion = weighted_visual
+
         evidence_fused = self.fusion(
-            weighted_visual=weighting_out.weighted_visual,
+            weighted_visual=visual_for_fusion,
             text_tokens=evi_text_out.token_embeddings,
             text_attention_mask=evi_text_out.attention_mask,
         )
@@ -187,7 +207,7 @@ class ECERRetriever(nn.Module):
             claim_repr=claim_repr,
             evidence_repr=evidence_repr,
             claim_comp_repr=claim_comp_repr,
-            weighted_visual=F.normalize(weighting_out.weighted_visual, dim=-1),
+            weighted_visual=F.normalize(weighted_visual, dim=-1),  # unmasked; see comment above
             alpha=weighting_out.alpha,
             aux={
                 "rep_index": rep_index,
@@ -206,7 +226,7 @@ class ECERRetriever(nn.Module):
         return F.normalize(self.claim_head(out.pooled), dim=-1)
 
     @torch.no_grad()
-    def encode_evidence_for_index(self, input_ids, attention_mask, pixel_values, claim_tokens=None, claim_mask=None) -> torch.Tensor:
+    def encode_evidence_for_index(self, input_ids, attention_mask, pixel_values, claim_tokens=None, claim_mask=None, has_image=None) -> torch.Tensor:
         """For corpus encoding without a paired claim, S_j is dropped (use neutral).
 
         Practically we set S to ones by toggling the module behavior.
@@ -242,8 +262,14 @@ class ECERRetriever(nn.Module):
                 reliability=R,
             )
 
+        weighted_visual = w_out.weighted_visual
+        if has_image is not None:
+            visual_for_fusion = weighted_visual * has_image.to(weighted_visual.dtype).unsqueeze(-1)
+        else:
+            visual_for_fusion = weighted_visual
+
         fused = self.fusion(
-            weighted_visual=w_out.weighted_visual,
+            weighted_visual=visual_for_fusion,
             text_tokens=evi_text_out.token_embeddings,
             text_attention_mask=evi_text_out.attention_mask,
         )

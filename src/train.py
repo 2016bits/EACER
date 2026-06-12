@@ -76,6 +76,7 @@ def evaluate(model, cfg, tokenizer, image_processor, device, split: str = "val")
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             pixel_values=batch["pixel_values"],
+            has_image=batch.get("has_image"),
         )
         evi_ids.extend(batch["ids"])
         evi_vecs.append(vec.cpu())
@@ -119,6 +120,7 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, cfg, device, wr
                 out.aux["rep_index"],
                 batch["num_negatives_per_sample"],
                 temperature=loss_cfg["contrastive_temperature"],
+                claim_int_id=batch.get("claim_int_id"),
             )
             l_comp = torch.tensor(0.0, device=device)
             if loss_cfg.get("use_complementary_loss", False) and out.claim_comp_repr is not None:
@@ -128,6 +130,7 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, cfg, device, wr
                     out.aux["rep_index"],
                     batch["num_negatives_per_sample"],
                     temperature=loss_cfg["contrastive_temperature"],
+                    claim_int_id=batch.get("claim_int_id"),
                 )
             loss = l_ret + loss_cfg["complementary_lambda"] * l_comp
 
@@ -192,6 +195,7 @@ def main():
         max_evidence_len=cfg["data"]["max_evidence_len"],
         build_complementary_query=cfg["loss"].get("use_complementary_loss", True),
         with_claim_image=use_claim_image,
+        comp_target=cfg["loss"].get("comp_target", "full_text"),
     )
     train_loader = DataLoader(
         train_ds,
@@ -232,7 +236,14 @@ def main():
     scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
 
     writer = SummaryWriter(log_dir=os.path.join(cfg["output_dir"], "tb"))
-    best_metric, global_step = -1.0, 0
+    # Early-stopping: stop training if val main metric doesn't improve for
+    # `early_stopping_patience` consecutive epochs. The metric used is
+    # `eval.early_stopping_metric` (defaults to Recall@10 — more stable than
+    # Recall@1 which can fluctuate a lot from epoch to epoch).
+    es_metric_key = cfg["eval"].get("early_stopping_metric", "Recall@10")
+    es_patience = cfg["eval"].get("early_stopping_patience", 0)   # 0 disables ES
+    best_metric, best_epoch, patience_left = -1.0, 0, es_patience
+    global_step = 0
     for epoch in range(1, cfg["optim"]["num_epochs"] + 1):
         global_step = train_one_epoch(
             model, train_loader, optimizer, scheduler, scaler, cfg, device, writer, epoch, global_step
@@ -245,9 +256,12 @@ def main():
             for k, v in metrics.items():
                 print(f"  {k}: {v:.4f}")
                 writer.add_scalar(f"val/{k}", v, epoch)
-            main_metric = metrics.get(f"Recall@{cfg['eval']['recall_k'][0]}", 0.0)
-            if main_metric > best_metric:
+            main_metric = metrics.get(es_metric_key, 0.0)
+            improved = main_metric > best_metric
+            if improved:
                 best_metric = main_metric
+                best_epoch = epoch
+                patience_left = es_patience
                 ckpt = {
                     "model": model.state_dict(),
                     "epoch": epoch,
@@ -256,7 +270,17 @@ def main():
                 }
                 ckpt_path = os.path.join(cfg["output_dir"], "best.pt")
                 torch.save(ckpt, ckpt_path)
-                print(f"saved best ckpt -> {ckpt_path}")
+                print(f"saved best ckpt -> {ckpt_path}  ({es_metric_key}={main_metric:.4f})")
+            else:
+                if es_patience > 0:
+                    patience_left -= 1
+                    print(f"no improvement on {es_metric_key} (best {best_metric:.4f} @ epoch {best_epoch}); "
+                          f"patience_left={patience_left}")
+                    if patience_left <= 0:
+                        print(f"early stopping at epoch {epoch}")
+                        last_path = os.path.join(cfg["output_dir"], "last.pt")
+                        torch.save({"model": model.state_dict(), "epoch": epoch, "config": cfg}, last_path)
+                        break
 
         last_path = os.path.join(cfg["output_dir"], "last.pt")
         torch.save({"model": model.state_dict(), "epoch": epoch, "config": cfg}, last_path)

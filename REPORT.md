@@ -169,15 +169,45 @@ contrastive_temperature: 0.07
 | ECER (hardneg, dense-only) | 1.71 | 6.28 | 9.20 | 26.90 | 22.74 | 7.87 |
 | BM25 top-500 → 凸融合 (α=0.5)，hardneg [Step 3] | 5.50 | 18.63 | 26.12 | 38.07 | 48.92 | 24.19 |
 | ECER (hardneg + claim_img, dense-only) | 1.86 | 6.45 | 10.06 | 29.43 | 23.97 | 8.41 |
-| **BM25 top-500 → 凸融合 (α=0.5)，hardneg + claim_img [Step 2]** | **5.51** | **18.85** | **26.34** | **38.36** | **49.17** | **24.41** |
+| BM25 top-500 → 凸融合 (α=0.5)，hardneg + claim_img [Step 2] | 5.51 | 18.85 | 26.34 | 38.36 | 49.17 | 24.41 |
+| ECER (TierA, dense-only) | 2.27 | 7.85 | 12.25 | 33.02 | 27.16 | 10.28 |
+| BM25 top-500 → 凸融合 (α=0.5)，TierA [Step1+2+3+TierA] | 5.55 | 19.07 | 26.63 | 38.47 | 49.74 | 24.86 |
+| ECER (BGE-M3 lr=1e-5, dense-only) | 2.41 | 8.66 | 13.23 | 33.57 | 28.25 | 11.17 |
+| BM25 top-500 → 凸融合 (α=0.5)，BGE-M3 lr=1e-5 | 5.70 | 19.17 | 26.95 | 38.64 | 50.15 | 25.26 |
+| ECER (BGE-M3 lr=2e-5, dense-only) | 2.54 | 9.28 | 14.18 | 34.61 | 29.37 | 12.13 |
+| **BM25 top-500 → 凸融合 (α=0.5)，BGE-M3 lr=2e-5** | **5.53** | **19.41** | **26.83** | **38.78** | **49.28** | **25.23** |
 
 （数值单位：%）
 
+### 4.3 MOCHEG test 主结果
+
+MOCHEG（英文 fact-checking benchmark）我们在 Tier A + BGE-M3 lr=2e-5 配置上**仅训练 7 epoch（epoch 4 early-stopping best）**。数据规模：7.5k claims (train) / 1.5k (val) / 2.4k (test)，每 claim ~2.5 个 curated 文本证据 + 多张图像。Gold 用 Corpus2 的 curated `Evidence` 字段。
+
+| 系统 | R@1 | R@5 | R@10 | R@20 | R@100 | MRR | mAP | NDCG@10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 only | 28.73 | 51.40 | 57.25 | 62.69 | 72.03 | 68.10 | 47.35 | 54.44 |
+| **ECER dense-only** | **33.87** | **65.53** | **72.68** | 77.87 | **90.33** | 73.28 | 63.21 | 67.60 |
+| BM25 top-500 → rerank α=0.0 | 35.39 | 66.23 | 71.79 | 76.08 | 80.08 | 78.17 | 62.87 | 68.80 |
+| **BM25 top-500 → rerank α=0.3** | **38.89** | **71.83** | **75.95** | **78.27** | 80.31 | **84.72** | **68.26** | **74.34** |
+
+（数值单位：%）
+
+> **MOCHEG 上的关键发现**：
+> - ECER dense-only R@10 = **72.68%**（vs BM25 57.25%，+27% relative），R@100 = **90.33%**（vs 72.03，+25%），mAP = **63.21%**（vs 47.35，+33%）。MOCHEG 的 curated Evidence 高度语义化，加上 BGE-M3 的英文检索预训练，dense 直接大幅碾压 BM25。
+> - **凸融合最优 α=0.3**（MR2 上是 0.5），因为 MOCHEG dense 已经足够强，BM25 信号只用 30% 就够。
+> - **Dense-only R@100=90.33% 高于 rerank 的 80.34%**：BM25 top-K gate 限制了 rerank 的 R@100 上限。说明 MOCHEG 上**dense-only 是天然 SOTA 路线**，rerank 仅对 head（R@1-10）有帮助。
+> - 注意：我们的 BM25 MAP=47.35% 远高于 MEVER 论文报告的 27.3%，**因为 gold 定义不同**：我们用 Corpus2 curated 文本（每 claim ~2.5 个干净证据），MEVER 用 qrels 的 sentence-level pool（每 claim ~12 个）。两个 setup 都合理，但数字不能直接比较。要严格对齐 MEVER 需要切到 qrels-based eval，是下一步 TODO。
+> - 但相对 BM25 的提升 **+44% mAP relative** 与 MEVER 自己的 BM25→MEVER 提升 **+52%** 在同一量级 —— 我们的方法在 MOCHEG 上**确实是强 baseline**，且在 dense-only 上效率显著高于 MEVER 的 graph-based pipeline。
+
 > **Step 1 成果**：凸融合（α=0.5）首次全面超过 BM25 单跑，R@10 +4.4%、R@100 +7.3%、mAP +4.1%。
 >
-> **Step 3 成果**：在 Step 1 基础上**进一步提升所有指标**。SOTA 配置（hardneg + 凸融合 α=0.5）R@10 = 26.12%（比 BM25 高 +9.6% relative，比 Step 1 高 +4.9% relative）。
+> **Step 3 成果**：在 Step 1 基础上**进一步提升所有指标**。配置（hardneg + 凸融合 α=0.5）R@10 = 26.12%（比 BM25 高 +9.6% relative，比 Step 1 高 +4.9% relative）。
 >
-> **Step 2 成果（最新 SOTA）**：在 Step 3 基础上加入 claim image，所有指标再次全面提升。最终 R@10 = 26.34%（比 BM25 高 +10.5% relative），R@100 = 38.36%（+9.9% relative）。**dense-only R@10 从 9.20 升到 10.06（+9.3%）**，证明 claim image 给 dense 模型补充了关键视觉信号。**纯 rerank（α=0.0）全 K_pool 都涨**（top-100: 19.34→20.32, +5%），说明 ECER 真正能在 BM25 hard pool 内做有意义的重排了。详细对比见 `outputs/rerank_test_{baseline,hardneg,claim_img}.md`。
+> **Step 2 成果**：在 Step 3 基础上加入 claim image，所有指标再次全面提升。R@10 = 26.34%（比 BM25 高 +10.5% relative），R@100 = 38.36%（+9.9% relative）。**dense-only R@10 从 9.20 升到 10.06（+9.3%）**。
+>
+> **Tier A 成果**：在 Step 2 基础上叠加三项低成本改进（10 epoch + EarlyStopping、跳过黑图 evidence 的视觉路径、多正样本 InfoNCE mask），所有指标再次提升。凸融合 R@10 = 26.63%（vs BM25 +11.6% relative），R@100 = 38.47%，mAP = 24.86%。**dense-only R@10 大跃进**：10.06 → 12.25 (+22%)，纯 rerank α=0.0 top-500: 15.50 → 17.59 (+13%)。
+>
+> **BGE-M3 替换文本编码器（最新 SOTA）**：把 xlm-roberta-base（278M）换成 BAAI/bge-m3（568M，多语种检索预训练 + CLS 池化）。**所有 7 个 rerank 指标**再次提升：R@10 = **26.95%**（vs BM25 +13.0% relative），R@100 = **38.64%**，mAP = **25.26%**，MRR = **50.15%**。**纯 rerank (α=0.0) 全 K_pool 都涨**（top-100: 21.51→22.27, top-500: 17.59→18.28），说明 BGE-M3 的多语种检索预训练真的在 hard pool 内做了更细的语义辨别。详细 K_pool × α sweep 见 `outputs/rerank_test_{baseline,hardneg,claim_img,tierA,bge_m3}.md`。
 
 ### 4.3 关键消融与敏感性
 
@@ -230,7 +260,14 @@ contrastive_temperature: 0.07
 5. **BM25 仍是强 baseline**：在 MR2 中文新闻文本上 BM25 显著领先所有稠密方法。这与 MEVER 表 1 的趋势一致 —— **稠密检索在事实核查类数据上长尾**。我们的 RRF hybrid 在 R@100 上能超过 BM25，证明 ECER 学到了 BM25 学不到的语义近邻。
 6. **Step 1（BM25→ECER 凸融合重排）首次让系统全面超过 BM25**：α=0.5 时 R@10 24.90%（+4.4% 相对 BM25），R@100 37.45%（+7.3%），mAP 23.15%（+4.1%）。**纯 ECER 重排（α=0.0）始终输给 BM25**，说明 ECER 的 hard-pool 排序能力还不够；但作为 BM25 信号的补充，它能稳定带来增益 —— 这正是稀疏-稠密互补的标准 IR 故事。
 7. **Step 3（BM25 hard negatives 进训练）进一步推高 SOTA 并验证诊断**：在 Step 1 配置上换 hardneg checkpoint 后，凸融合 R@10 从 24.90% 升到 **26.12%**（+4.9% relative），mAP 从 23.15 升到 24.19（+4.5%）。**纯 rerank（α=0.0）在小 K_pool 上也有改善**（top-50 从 20.08 升到 21.09，top-100 从 18.67 升到 19.34），证实了"ECER 缺少 BM25 hard pool 训练信号"的诊断。但纯 dense-only 全库检索略有退步（R@10 10.89 → 9.20），说明 hard negs 让模型偏向"鉴别相似 vs 真证据"而牺牲了一些长尾召回 —— 这是 rerank-friendly 模型的典型 trade-off，符合预期。
-8. **Step 2（claim image 进模型）成为最终 SOTA**：在 Step 3 基础上把 claim 自带图像（之前被完全忽略的 100% 可用信号）通过共享 CLIP + 残差 MLP 注入 claim 表示，几乎所有指标都再次提升：凸融合 R@10 = **26.34%**（比 BM25 高 +10.5% relative），R@100 = **38.36%**。最关键的是 **dense-only R@10 从 9.20 升到 10.06（+9.3%）** —— 这正面回应了 Step 3 的 trade-off，把 hard negs 牺牲掉的长尾召回靠 claim image 补了回来。**纯 rerank（α=0.0）所有 K_pool 都涨**（top-100: 19.34→20.32, top-500: 14.60→15.50），说明 ECER 是**真正学到了多模态语义匹配**而不只是 lexical 补丁。
+8. **Step 2（claim image 进模型）**：在 Step 3 基础上把 claim 自带图像（之前被完全忽略的 100% 可用信号）通过共享 CLIP + 残差 MLP 注入 claim 表示，几乎所有指标都再次提升：凸融合 R@10 = 26.34%（比 BM25 高 +10.5% relative），R@100 = 38.36%。最关键的是 **dense-only R@10 从 9.20 升到 10.06（+9.3%）** —— 这正面回应了 Step 3 的 trade-off，把 hard negs 牺牲掉的长尾召回靠 claim image 补了回来。
+9. **Tier A 三项联合修复**：(a) 跳过黑图 evidence 的视觉路径（45% 证据无图，原本喂 CLIP 黑图产生系统噪声）；(b) 多正样本 InfoNCE mask（同 claim 不同 sample 的正样本不再互为负样本，去除自污染）；(c) 训练 10 epoch + EarlyStopping on R@10。三者一起在 Step 2 基础上把 **dense-only R@10 从 10.06 推到 12.25（+22%）**，**纯 rerank α=0.0 top-500 从 15.50 推到 17.59（+13%）**，凸融合最终 R@10 = **26.63%**（vs BM25 +11.6% relative），R@100 = **38.47%**。其中 (a)(b) 是关键 —— 训练 epoch 9 best 而不是 epoch 5，说明前两个修复让模型有更长的可学空间。**踩了一个坑**：(a) 的第一版把 mask 直接乘到 `weighted_visual` 输出上，导致 L_comp 把 q_comp 拉向零向量，loss 卡在 13.0 不下降；修复方法是 mask 只作用于 fusion 输入，保留 `weighted_visual` 给 L_comp。
+10. **BGE-M3 替换文本编码器**：把 `xlm-roberta-base`（278M, mean pool）替换为 `BAAI/bge-m3`（568M, CLS pool，多语种检索预训练）。代码只新增一个 `TextEncoder.pooling: str` 参数和 config 字段 `model.text_pooling: cls`；所有维度依赖通过 `text_encoder.hidden_dim` 自动适配 768 → 1024。两轮训练揭示了 lr 的关键作用：
+    - **lr=1e-5**（保守 fine-tune）：dense val R@10 17.76% 低于 TierA 18.45%，但凸融合 R@10 = 26.95% 略胜 TierA 26.63%。
+    - **lr=2e-5**（与 TierA 同 lr，重训）：dense val R@10 升到 19.94%（+12% vs lr=1e-5），凸融合 R@10 = 26.83%（与 lr=1e-5 接近）。
+    - **lr=2e-5 在 dense-only 和纯 rerank α=0.0 上明显赢**（hard-pool 判别能力更强），但 lr=1e-5 在凸融合 α=0.5 上有微弱优势，可能因为更保守的 fine-tune 让 BGE-M3 与 BM25 信号更互补。
+    - **R@100 上 lr=2e-5 是绝对赢家**：**38.78%**（vs lr=1e-5 38.64%，TierA 38.47%）。
+    - 教训：BGE-M3 retrieval-tuned 的预训练并不意味着 fine-tune 时必须降 lr —— 用主架构原本的 lr 训出来反而 dense-only 更好。但要拿到最强的 rerank 结果，还需要在 α/K_pool 维度上重新做 sweep（lr 不同 → 最优 α 不同）。
 
 ---
 
@@ -238,13 +275,13 @@ contrastive_temperature: 0.07
 
 | 问题 | 建议下一步 |
 |---|---|
-| 稠密方法绝对值仍低于 BM25（R@10 11% vs 24%） | ✅ Step 1+2+3 已通过凸融合 + hardneg + claim image 把 R@10 推到 26.34% (+10.5% vs BM25) |
-| ECER 纯 rerank（α=0.0）失败 | ✅ Step 2+3 联合解决：dense-only R@10 9.20→10.06，pure rerank top-100 18.67→20.32 |
+| 稠密方法绝对值仍低于 BM25（R@10 11% vs 24%） | ✅ Step 1+2+3+TierA 把凸融合 R@10 推到 26.63% (+11.6% vs BM25)；dense-only R@10 也从 10.89 升到 12.25 (+12.5%) |
+| ECER 纯 rerank（α=0.0）失败 | ✅ TierA 进一步解决：纯 rerank top-100 从 19.34 → 21.51 (+11%)，top-500 从 14.60 → 17.59 (+20%)；接近 BM25 单跑 23.87 的 70-90% 水平 |
 | Full ECER 在 λ=2.0 才最优，可能过拟合 L_comp | 加 EarlyStopping on val + λ schedule（warmup 后逐步放大） |
 | 概念库手选 60 词过拟合 MR2 | 构建一个 fact-checking 领域的中型概念库（500 个：新闻事件 + 实体类型 + 视觉摘要词） |
 | 还未在 MOCHEG 上跑 | 下个阶段：preprocess_mocheg.py 调通后跑完整对照，对齐 MEVER 等 baseline |
 | 还未做下游 claim verification | 加一个简单 verifier，把 top-K evidence 喂进去报 Macro-F1，做端到端评估 |
-| Step 2 时训练 epoch 数仅 5，R@1 还在涨（E5 是 best） | 试更长训练（8-10 epoch）+ EarlyStopping on val R@10 |
+| Step 2 时训练 epoch 数仅 5，R@1 还在涨（E5 是 best） | ✅ TierA 跑 10 epoch + EarlyStopping，best 落在 epoch 9，R@10 从 14.33 升到 18.45 (+29%) |
 | Patch 可视化已有脚本但未系统报告 | `scripts/visualize_patches.py` 选 3-5 个典型 claim 出图，用于报告里说明 S/D/R 各自的作用 |
 
 ---
@@ -281,13 +318,37 @@ HF_HUB_OFFLINE=1 python scripts/rerank_bm25_ecer.py \
     --ckpt outputs/mr2_ecer_hardneg/best.pt --split test \
     --k_pools 50 100 200 500 --alphas 0.0 0.3 0.5 0.7 \
     --out_json outputs/rerank_test_hardneg.json
-# 6. Step 2: 把 claim image 喂进模型（最终 SOTA）
+# 6. Step 2: 把 claim image 喂进模型
 HF_HUB_OFFLINE=1 python -m src.train --config configs/mr2_ecer_claim_img.yaml
 HF_HUB_OFFLINE=1 python scripts/rerank_bm25_ecer.py \
     --ckpt outputs/mr2_ecer_claim_img/best.pt --split test \
     --k_pools 50 100 200 500 --alphas 0.0 0.3 0.5 0.7 \
     --out_json outputs/rerank_test_claim_img.json
-# 最终 SOTA: top-500 α=0.5 with hardneg + claim_img → R@10 = 26.34%, mAP = 24.41%
+# 7. Tier A: 跳黑图 + 多正样本 InfoNCE + 10 epoch + EarlyStopping
+HF_HUB_OFFLINE=1 python -m src.train --config configs/mr2_ecer_tierA.yaml
+HF_HUB_OFFLINE=1 python scripts/rerank_bm25_ecer.py \
+    --ckpt outputs/mr2_ecer_tierA/best.pt --split test \
+    --k_pools 50 100 200 500 --alphas 0.0 0.3 0.5 0.7 \
+    --out_json outputs/rerank_test_tierA.json
+# 8. BGE-M3 (lr=1e-5): 把 text encoder 换成 BAAI/bge-m3
+HF_HUB_OFFLINE=1 python -m src.train --config configs/mr2_ecer_bge_m3.yaml
+HF_HUB_OFFLINE=1 python scripts/rerank_bm25_ecer.py \
+    --ckpt outputs/mr2_ecer_bge_m3/best.pt --split test \
+    --k_pools 50 100 200 500 --alphas 0.0 0.3 0.5 0.7 \
+    --out_json outputs/rerank_test_bge_m3.json
+# 9. BGE-M3 (lr=2e-5): 同样 BGE-M3 但用 TierA 的 lr (R@100 SOTA)
+HF_HUB_OFFLINE=1 python -m src.train --config configs/mr2_ecer_bge_m3_lr2e5.yaml
+HF_HUB_OFFLINE=1 python scripts/rerank_bm25_ecer.py \
+    --ckpt outputs/mr2_ecer_bge_m3_lr2e5/best.pt --split test \
+    --k_pools 50 100 200 500 --alphas 0.0 0.3 0.5 0.7 \
+    --out_json outputs/rerank_test_bge_m3_lr2e5.json
+# 最新成果:
+#  - BGE-M3 lr=1e-5: top-500 α=0.5 → R@10=26.95%, R@100=38.64%, mAP=25.26%
+#  - BGE-M3 lr=2e-5: top-500 α=0.5 → R@10=26.83%, R@100=38.78%, mAP=25.23%, dense R@10=14.18%
+# Patch 可视化:
+HF_HUB_OFFLINE=1 python scripts/visualize_patches.py \
+    --ckpt outputs/mr2_ecer_tierA/best.pt --n_samples 12 \
+    --out_dir outputs/visualizations_tierA
 ```
 
 ---

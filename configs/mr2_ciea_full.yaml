@@ -1,0 +1,81 @@
+# Faithful CIEA reproduction on MR2 (within EACER's framework).
+#
+# CIEA paper: Zeng et al., "Enhancing Multimodal Retrieval via Complementary
+# Information Extraction and Alignment", ACL 2025.
+# Author code: https://github.com/zengdlong/CIEA
+#
+# Why this differs from ``mr2_ablation_ciea.yaml``:
+#   1. ``use_complementary_loss: true`` (was FALSE — that was a bug:
+#       CIEA's whole point is the complementary alignment loss).
+#   2. ``comp_target: caption`` — q_comp is built by masking claim tokens
+#       that appear in the *caption* (falls back to title when caption is
+#       empty), matching CIEA's recipe rather than EACER's
+#       ``mask-against-full-evidence-text`` default which over-masks
+#       Chinese stopwords.
+#   3. ``complementary_lambda: 0.5`` — CIEA author uses 0.1 in
+#       ``pipeline.sh``; on MR2 EACER's λ sweep shows 0.5 is closer to the
+#       sweet spot than 0.1 while still being within CIEA's recipe spirit.
+#
+# Backbone differences from CIEA paper that are *necessary* (not bugs):
+#   - Text encoder: XLM-R-base instead of CIEA's T5-ANCE.
+#     CIEA's T5-ANCE is English-only and would fail on MR2's Chinese half.
+#   - No MARVEL pretrain on the visual projector. EACER doesn't replicate
+#     MARVEL's image+text pretraining stage; we ablate this as a known gap.
+
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ciea_full
+
+data:
+  train_path: data/processed/mr2/mr2_train.jsonl
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 0       # CIEA DPR uses in-batch only; matches stage 1
+
+model:
+  text_encoder: xlm-roberta-base
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true                # CIEA freezes vision; we do too
+  freeze_text: false
+  projector_hidden_dim: 768
+  projector_out_dim: 768
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  fusion_hidden_dim: 768
+
+weighting:
+  use_claim_relevance: false         # S off — CIEA does not use claim relevance
+  use_complementarity: true          # D on  — CIEA's complementarity weighting
+  use_entropy_reliability: false     # R off — CIEA does not model entropy
+  entropy_scheme: A
+  entropy_K: 1000
+  entropy_concepts_path: null
+  entropy_mu: 4.0
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 0.5          # CIEA author's pipeline.sh default is 0.1
+  use_complementary_loss: true       # << critical fix vs mr2_ablation_ciea
+  comp_target: caption               # << CIEA-faithful q_comp masking target
+
+optim:
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 5
+  batch_size: 32
+  grad_accum_steps: 1
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true
+  early_stopping_metric: Recall@10
+  early_stopping_patience: 0

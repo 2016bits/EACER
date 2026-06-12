@@ -14,10 +14,23 @@ class TextEncoderOutput:
 
 
 class TextEncoder(nn.Module):
-    """Wraps a HuggingFace text encoder. Mean-pools with the attention mask."""
+    """Wraps a HuggingFace text encoder.
 
-    def __init__(self, model_name: str, freeze: bool = False):
+    ``pooling`` selects how the sentence representation is built:
+      - "mean": attention-mask-aware mean over token embeddings (default; what
+        the XLM-RoBERTa-base / BERT runs used).
+      - "cls":  ``last_hidden_state[:, 0, :]`` — the canonical choice for
+        retrieval-tuned encoders like BGE-M3, which were trained with CLS
+        contrastive heads.
+
+    Token-level outputs are returned regardless so downstream modules (S/D
+    weights, fusion) keep their per-token view.
+    """
+
+    def __init__(self, model_name: str, freeze: bool = False, pooling: str = "mean"):
         super().__init__()
+        assert pooling in {"mean", "cls"}, f"unknown pooling: {pooling}"
+        self.pooling = pooling
         self.backbone = AutoModel.from_pretrained(model_name)
         self.hidden_dim = self.backbone.config.hidden_size
         if freeze:
@@ -27,10 +40,13 @@ class TextEncoder(nn.Module):
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> TextEncoderOutput:
         out = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
         tokens = out.last_hidden_state
-        mask = attention_mask.unsqueeze(-1).float()
-        summed = (tokens * mask).sum(dim=1)
-        denom = mask.sum(dim=1).clamp(min=1e-6)
-        pooled = summed / denom
+        if self.pooling == "cls":
+            pooled = tokens[:, 0, :]
+        else:
+            mask = attention_mask.unsqueeze(-1).float()
+            summed = (tokens * mask).sum(dim=1)
+            denom = mask.sum(dim=1).clamp(min=1e-6)
+            pooled = summed / denom
         return TextEncoderOutput(token_embeddings=tokens, pooled=pooled, attention_mask=attention_mask)
 
 

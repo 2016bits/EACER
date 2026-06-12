@@ -1,0 +1,76 @@
+# Tier A combo: stacks all three low-cost / high-impact improvements on top
+# of the Step 2 SOTA (claim_img + hardneg).
+#
+#   #1 Longer training (10 epochs) + EarlyStopping on Recall@10 (patience 3)
+#      — Step 2 best was at epoch 5 with R@1 still climbing.
+#
+#   #2 Skip black images: the dataset/collator already mark `has_image` per
+#      evidence; the retriever now zero-out the weighted visual contribution
+#      for text-only evidence, so the fusion transformer doesn't see noise
+#      from CLIP-on-black-image patches.
+#
+#   #3 Multi-positive InfoNCE: each MR2 claim has ~8 positives; the dataset
+#      flattens them into 8 separate samples. When two share a batch, one's
+#      positive accidentally became the other's negative. The collator now
+#      emits `claim_int_id` and the losses mask out same-claim positives
+#      from the negative pool.
+#
+# These three are orthogonal and stack cheaply.
+
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ecer_tierA
+
+data:
+  train_path: data/processed/mr2/mr2_train_hardneg.jsonl
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 4
+
+model:
+  text_encoder: xlm-roberta-base
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 768
+  projector_out_dim: 768
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  fusion_hidden_dim: 768
+  use_claim_image: true
+
+weighting:
+  use_claim_relevance: true
+  use_complementarity: true
+  use_entropy_reliability: true
+  entropy_scheme: A
+  entropy_K: 1000
+  entropy_concepts_path: null
+  entropy_mu: 4.0
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 2.0
+  use_complementary_loss: true
+
+optim:
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 10                           # was 5; ES will cut early if needed
+  batch_size: 16
+  grad_accum_steps: 2
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true
+  early_stopping_metric: Recall@10         # more stable than R@1
+  early_stopping_patience: 3               # 3 epochs without improvement => stop

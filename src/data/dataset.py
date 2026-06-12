@@ -103,9 +103,20 @@ class RetrievalDataset(Dataset):
         return len(self.samples)
 
     def _materialise(self, ev: Dict[str, Any]) -> Dict[str, Any]:
+        # ``caption_for_comp`` is a short, focused string used to build the
+        # CIEA-style q_comp (caption-aware complementary query). Prefers an
+        # actual caption; falls back to title (≈88% MR2 coverage) so q_comp
+        # masks only against the most relevant evidence words, not the entire
+        # title+caption+ocr concatenation.
+        caption_for_comp = (
+            (ev.get("caption") or "").strip()
+            or (ev.get("title") or "").strip()
+            or _evidence_text(ev)
+        )
         return {
             "evidence_id": str(ev.get("evidence_id", "")),
             "text": _evidence_text(ev),
+            "caption_for_comp": caption_for_comp,
             "image": _load_image(self.image_root, ev.get("image_path"), self.image_size),
             "has_text": bool(ev.get("text") or ev.get("caption") or ev.get("ocr")),
             "has_image": bool(ev.get("image_path")),

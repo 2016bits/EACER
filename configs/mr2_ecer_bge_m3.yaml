@@ -1,0 +1,74 @@
+# Tier A architecture but with BGE-M3 as the text encoder.
+#
+# BGE-M3 is a multilingual retrieval-tuned XLM-R-large checkpoint
+# (hidden_size 1024, 568 M params). Compared to xlm-roberta-base it should:
+#   - give better out-of-the-box dense similarity for both Chinese & English
+#     (it was trained with hard-negative contrastive loss on retrieval data)
+#   - use CLS pooling (the canonical mode it was trained with)
+#
+# Concretely the model is ~2x larger, so we shrink batch_size to 8 and bump
+# grad_accum to 4 (still effective batch = 32 like Tier A).  All
+# dimension-dependent modules (projector out_dim, fusion hidden_dim,
+# claim_image_fuse) auto-detect from text_encoder.hidden_dim, so we only
+# need to flip the encoder name + pooling here.
+
+seed: 42
+device: cuda
+output_dir: outputs/mr2_ecer_bge_m3
+
+data:
+  train_path: data/processed/mr2/mr2_train_hardneg.jsonl
+  val_path:   data/processed/mr2/mr2_val.jsonl
+  test_path:  data/processed/mr2/mr2_test.jsonl
+  image_root: ""
+  max_claim_len: 64
+  max_evidence_len: 128
+  image_size: 224
+  num_workers: 4
+  hard_negatives_per_sample: 4
+
+model:
+  text_encoder: BAAI/bge-m3
+  text_pooling: cls                  # << BGE-M3 was trained with CLS pooling
+  visual_encoder: openai/clip-vit-base-patch32
+  freeze_visual: true
+  freeze_text: false
+  projector_hidden_dim: 1024         # matches BGE-M3 dim for the inner MLP
+  # projector_out_dim defaults to text_encoder.hidden_dim (1024) — OK
+  # fusion_hidden_dim defaults to text_encoder.hidden_dim (1024) — OK
+  fusion_num_layers: 2
+  fusion_num_heads: 8
+  use_claim_image: true
+
+weighting:
+  use_claim_relevance: true
+  use_complementarity: true
+  use_entropy_reliability: true
+  entropy_scheme: A
+  entropy_K: 1000
+  entropy_concepts_path: null
+  entropy_mu: 4.0
+  entropy_sigma: 1.5
+  softmax_temperature: 1.0
+
+loss:
+  contrastive_temperature: 0.07
+  complementary_lambda: 2.0
+  use_complementary_loss: true
+
+optim:
+  lr: 1.0e-5                         # halved from 2e-5; BGE-M3 is already
+                                     # well-trained for retrieval, so we
+                                     # fine-tune more gently
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_epochs: 10
+  batch_size: 8                      # halved from 16 because BGE-M3 is 2x bigger
+  grad_accum_steps: 4                # effective batch = 32, matches Tier A
+  max_grad_norm: 1.0
+
+eval:
+  recall_k: [1, 5, 10, 20, 100]
+  use_faiss: true
+  early_stopping_metric: Recall@10
+  early_stopping_patience: 3
